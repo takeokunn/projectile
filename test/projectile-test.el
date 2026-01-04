@@ -450,10 +450,63 @@ Just delegates OPERATION and ARGS for all operations except for`shell-command`'.
     (spy-on 'projectile-project-name :and-return-value "project")
     (spy-on 'projectile-ignored-files-rel)
     (spy-on 'projectile-ignored-directories-rel)
+    (spy-on 'projectile-patterns-to-ignore :and-return-value nil)
+    (spy-on 'projectile-patterns-to-ensure :and-return-value nil)
     (let* ((file-names '("foo.c" "foo.o" "foo.so" "foo.o.gz" "foo.tar.gz" "foo.tar.GZ"))
            (files (mapcar 'projectile-expand-root file-names)))
       (let ((projectile-globally-ignored-file-suffixes '(".o" ".so" ".tar.gz")))
-        (expect (projectile-remove-ignored files) :to-equal (mapcar 'projectile-expand-root '("foo.c" "foo.o.gz")))))))
+        (expect (projectile-remove-ignored files) :to-equal (mapcar 'projectile-expand-root '("foo.c" "foo.o.gz"))))))
+  (it "removes files matching glob patterns from .projectile"
+    (spy-on 'projectile-project-root :and-return-value "/path/to/project/")
+    (spy-on 'projectile-project-name :and-return-value "project")
+    (spy-on 'projectile-ignored-files-rel :and-return-value nil)
+    (spy-on 'projectile-ignored-directories-rel :and-return-value nil)
+    (spy-on 'projectile-patterns-to-ignore :and-return-value '("*.text" "*.log"))
+    (spy-on 'projectile-patterns-to-ensure :and-return-value nil)
+    ;; Mock file-expand-wildcards to simulate glob expansion without filesystem access
+    (spy-on 'file-expand-wildcards :and-call-fake
+            (lambda (pattern &optional _full)
+              (cond
+               ((string= pattern "*.text") '("mysubdir/y.text"))
+               ((string= pattern "*.log") '("debug.log"))
+               (t nil))))
+    (let ((projectile-globally-ignored-file-suffixes nil)
+          (files '("src/main.c" "src/utils.c" "mysubdir/x.txt" "mysubdir/y.text" "debug.log")))
+      (expect (projectile-remove-ignored files) :to-equal '("src/main.c" "src/utils.c" "mysubdir/x.txt"))))
+  (it "respects ensure patterns when removing glob-matched files"
+    (spy-on 'projectile-project-root :and-return-value "/path/to/project/")
+    (spy-on 'projectile-project-name :and-return-value "project")
+    (spy-on 'projectile-ignored-files-rel :and-return-value nil)
+    (spy-on 'projectile-ignored-directories-rel :and-return-value nil)
+    (spy-on 'projectile-patterns-to-ignore :and-return-value '("*.log"))
+    (spy-on 'projectile-patterns-to-ensure :and-return-value '("important.log"))
+    ;; Mock file-expand-wildcards to simulate glob expansion without filesystem access
+    (spy-on 'file-expand-wildcards :and-call-fake
+            (lambda (pattern &optional _full)
+              (cond
+               ((string= pattern "*.log") '("debug.log" "important.log"))
+               ((string= pattern "important.log") '("important.log"))
+               (t nil))))
+    (let ((projectile-globally-ignored-file-suffixes nil)
+          (files '("src/main.c" "debug.log" "important.log")))
+      (expect (projectile-remove-ignored files) :to-equal '("src/main.c" "important.log"))))
+  (it "avoids false positives with simple patterns (no wildcards)"
+    (spy-on 'projectile-project-root :and-return-value "/path/to/project/")
+    (spy-on 'projectile-project-name :and-return-value "project")
+    (spy-on 'projectile-ignored-files-rel :and-return-value nil)
+    (spy-on 'projectile-ignored-directories-rel :and-return-value nil)
+    (spy-on 'projectile-patterns-to-ignore :and-return-value '("build"))
+    (spy-on 'projectile-patterns-to-ensure :and-return-value nil)
+    ;; Mock file-expand-wildcards - "build" has no wildcards so returns matching files
+    (spy-on 'file-expand-wildcards :and-call-fake
+            (lambda (pattern &optional _full)
+              (cond
+               ((string= pattern "build") '("build" "dir/build"))
+               (t nil))))
+    (let ((projectile-globally-ignored-file-suffixes nil)
+          (files '("src/main.c" "mybuild/file.txt" "build" "dir/build")))
+      ;; "build" pattern should match only exact basename "build", not "mybuild/file.txt"
+      (expect (projectile-remove-ignored files) :to-equal '("src/main.c" "mybuild/file.txt")))))
 
 (describe "projectile-normalise-patterns"
   (it "removes patterns starting with /"

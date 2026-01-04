@@ -1658,14 +1658,55 @@ Only text sent to standard output is taken into account."
   "First remove ignored files from FILES, then add back unignored files."
   (projectile-add-unignored project vcs (projectile-remove-ignored files)))
 
+(defun projectile--expand-patterns-to-set (patterns)
+  "Expand glob PATTERNS and return a hash table of matching files.
+This pre-expands all wildcard patterns once for O(1) lookup performance."
+  (let ((result (make-hash-table :test 'equal)))
+    (dolist (pattern patterns)
+      ;; For each pattern, expand wildcards and add all matches to hash table
+      (dolist (file (file-expand-wildcards pattern t))
+        (puthash file t result)))
+    result))
+
+(defun projectile--file-matches-patterns-p (file patterns expanded-set)
+  "Check if FILE matches any of PATTERNS using pre-expanded EXPANDED-SET.
+Uses suffix matching for patterns without wildcards, hash lookup for wildcards.
+For simple patterns (no wildcards, no directory separators), matches only the
+basename of FILE to avoid false positives like pattern \"build\" matching
+\"mybuild/file.txt\"."
+  (or
+   ;; Fast path: check in pre-expanded set (O(1) lookup)
+   (gethash file expanded-set)
+   ;; Fallback: suffix/basename matching for patterns without wildcards
+   (cl-some
+    (lambda (pattern)
+      (and (not (string-match-p "[*?\\[]" pattern))
+           (if (string-match-p "/" pattern)
+               ;; Pattern contains directory separator: use suffix matching
+               (string-suffix-p (directory-file-name pattern)
+                                (directory-file-name file))
+             ;; Simple pattern: match only against basename
+             (string= pattern (file-name-nondirectory file)))))
+    patterns)))
+
 (defun projectile-remove-ignored (files)
   "Remove ignored files and folders from FILES.
 
 If ignored directory prefixed with '*', then ignore all
 directories/subdirectories with matching filename,
-otherwise operates relative to project root."
-  (let ((ignored-files (projectile-ignored-files-rel))
-        (ignored-dirs (projectile-ignored-directories-rel)))
+otherwise operates relative to project root.
+
+Also applies glob patterns from the project's .projectile file,
+respecting both ignore patterns (prefixed with -) and ensure
+patterns (prefixed with !)."
+  (let* ((ignored-files (projectile-ignored-files-rel))
+         (ignored-dirs (projectile-ignored-directories-rel))
+         (patterns-to-ignore (projectile-patterns-to-ignore))
+         (patterns-to-ensure (projectile-patterns-to-ensure))
+         (default-directory (projectile-project-root))
+         ;; Pre-expand patterns once for O(1) lookup (performance optimization)
+         (expanded-ignore (projectile--expand-patterns-to-set patterns-to-ignore))
+         (expanded-ensure (projectile--expand-patterns-to-set patterns-to-ensure)))
     (cl-remove-if
      (lambda (file)
        (or (cl-some
@@ -1688,7 +1729,11 @@ otherwise operates relative to project root."
            (cl-some
             (lambda (suf)
               (string-suffix-p suf file t))
-            projectile-globally-ignored-file-suffixes)))
+            projectile-globally-ignored-file-suffixes)
+           ;; Check glob patterns from .projectile file (using pre-expanded sets)
+           (and (projectile--file-matches-patterns-p file patterns-to-ignore expanded-ignore)
+                ;; Respect ensure patterns (unignore)
+                (not (projectile--file-matches-patterns-p file patterns-to-ensure expanded-ensure)))))
      files)))
 
 (defun projectile-keep-ignored-files (project vcs files)

@@ -3,6 +3,8 @@
 ## master (unreleased)
 
 ### Changes
+* Apply `.projectile` ignore/ensure patterns to file listing (not just grep/ripgrep). Patterns prefixed with `-` are now respected by `projectile-remove-ignored`.
+* Filter out path traversal patterns (containing `..`) in `projectile-normalise-patterns` for security.
 * [#1958](https://github.com/bbatsov/projectile/issues/1958): Exclude `.projectile-cache.eld` from search results (ripgrep/ag/grep) by default.
 * [#1954](https://github.com/bbatsov/projectile/issues/1954): update ELisp for usage.html / "Removal of missing projects"
 * [#1947](https://github.com/bbatsov/projectile/issues/1947): `projectile-project-name` should be marked as safe
