@@ -1904,8 +1904,13 @@ projectile project root."
                          paths))))
 
 (defun projectile-normalise-patterns (patterns)
-  "Remove paths from PATTERNS."
-  (cl-remove-if (lambda (pat) (string-prefix-p "/" pat)) patterns))
+  "Remove paths from PATTERNS and filter out unsafe patterns.
+Patterns starting with `/' are removed as they are paths, not patterns.
+Patterns containing `..' are removed to prevent path traversal attacks."
+  (cl-remove-if (lambda (pat)
+                  (or (string-prefix-p "/" pat)
+                      (string-match-p "\\.\\." pat)))
+                patterns))
 
 (defun projectile-make-relative-to-root (files)
   "Make FILES relative to the project root."

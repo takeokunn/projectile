@@ -455,6 +455,14 @@ Just delegates OPERATION and ARGS for all operations except for`shell-command`'.
       (let ((projectile-globally-ignored-file-suffixes '(".o" ".so" ".tar.gz")))
         (expect (projectile-remove-ignored files) :to-equal (mapcar 'projectile-expand-root '("foo.c" "foo.o.gz")))))))
 
+(describe "projectile-normalise-patterns"
+  (it "removes patterns starting with /"
+    (expect (projectile-normalise-patterns '("*.log" "/absolute/path" "*.txt"))
+            :to-equal '("*.log" "*.txt")))
+  (it "removes patterns containing .. to prevent path traversal"
+    (expect (projectile-normalise-patterns '("*.log" "../parent/*.txt" "valid/*.c" "foo/../bar"))
+            :to-equal '("*.log" "valid/*.c"))))
+
 (describe "projectile-add-unignored"
   (it "requires explicitly unignoring files inside ignored paths"
     (spy-on 'projectile-get-repo-ignored-files :and-return-value '("unignored-file" "path/unignored-file2"))
